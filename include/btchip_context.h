@@ -328,6 +328,6 @@ void btchip_context_init(void);
 #define ETP_AMOUNT btchip_context_D.inputValue // unsigned char[8]
 #define ETP_DECIMALS btchip_context_D.nExpiryHeight[0] // unsigned char
 #define ETP_LENGTH btchip_context_D.nExpiryHeight[1] // unsigned char
-#define ETP_TMP btchip_context_D.nExpiryHeight[2] // unsigned char
+// #define ETP_TMP btchip_context_D.nExpiryHeight[2] // unsigned char
 
 #endif

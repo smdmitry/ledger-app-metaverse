@@ -2230,97 +2230,190 @@ uint8_t prepare_single_output() {
     }
 
     if (G_coin_config->kind == COIN_KIND_METAVERSE) {
+        
         vars.tmp.decimals[0] = '\0';
 
         unsigned char *parsePointer = btchip_context_D.currentOutput + offset + 26;
         ETP_DECIMALS = DECIMALS;
-        ETP_TMP = 0;
+        // ETP_TMP = 0;
         ETP_LENGTH = btchip_context_D.shortCoinIdLength;
 
-        os_memmove(ETP_BUFF, parsePointer, 4);
-        parsePointer += 4;
+        // PRINTF("Parse Pointer: %.*H\n\n",100, parsePointer);
 
-        // Version = 1 | 207 (ATTACHMENT.VERSION.DEFAULT |  ATTACHMENT.VERSION.DID)
-        if (
-            ETP_BUFF[0] != 1 ||
-            ETP_BUFF[1] != 0 ||
-            ETP_BUFF[2] != 0 ||
-            ETP_BUFF[3] != 0
-        ) {
-            return 0;
-        }
+        // os_memmove(ETP_BUFF, parsePointer, 4);
+        // parsePointer += 4;
 
-        os_memmove(ETP_BUFF, parsePointer, 4);
-        parsePointer += 4;
+        /* Current Metaverse supported operations:
+        https://docs.mvs.org/developers/mvs-transaction-format-and-signing.html#Output-attachment
+            1. etp transfer
+            2. other mst creation
+            3  other mst transfer
+            4. attach blockchain message
+            5. did creation
+            6. did transfer
+            7. asset_cert creation (e.g. domain, naming, mining, witness, marriage, kyc)
+            8. asset_mit creation
+            9. asset_mit transfer
+        */
 
-        // Type = 0 | 2 (ATTACHMENT.TYPE.ETP_TRANSFER | ATTACHMENT.TYPE.MST)
-        if (
-            ETP_BUFF[0] == 0 &&
-            ETP_BUFF[1] == 0 &&
-            ETP_BUFF[2] == 0 &&
-            ETP_BUFF[3] == 0) {
-        } else if (
-            ETP_BUFF[0] == 2 &&
-            ETP_BUFF[1] == 0 &&
-            ETP_BUFF[2] == 0 &&
-            ETP_BUFF[3] == 0
-        ) {
-            // Throw error is ETP amount is non zero
-            if (
-                amount[0] != 0 ||
-                amount[1] != 0 ||
-                amount[2] != 0 ||
-                amount[3] != 0 ||
-                amount[4] != 0 ||
-                amount[5] != 0 ||
-                amount[6] != 0 ||
-                amount[7] != 0
-            ) {
-                return 0;
-            }
+        // Version
+        // 1   : normal
+        // 207 : did related
+        switch(btchip_read_u32(parsePointer, 0, 0)) {
 
-            os_memmove(ETP_BUFF, parsePointer, 4);
-            parsePointer += 4;
+            case 1 :
+                parsePointer += 4;
+                // Type
+                // 0 : etp
+                // 1 : etp_award // unused
+                // 2 : asset
+                // 3 : message
+                // 4 : did
+                // 5 : asset_cert
+                // 6 : asset_mit
+                switch(btchip_read_u32(parsePointer, 0, 0)) {
 
-            // Status = 1 | 2 (MST.STATUS.REGISTER | MST.STATUS.TRANSFER)
-            if (
-                ETP_BUFF[0] == 2 &&
-                ETP_BUFF[1] == 0 &&
-                ETP_BUFF[2] == 0 &&
-                ETP_BUFF[3] == 0
-            ) {
-                // Ticker text length
-                ETP_TMP = *parsePointer;
-                parsePointer += 1;
+                    case 0: // etp
+                        break;
 
-                // Prepare ticker text
-                ETP_LENGTH = ETP_TMP > 10 ? 10 : ETP_TMP;
-                os_memmove(vars.tmp.fullAmount, parsePointer, ETP_LENGTH);
-                vars.tmp.fullAmount[ETP_LENGTH] = '\0';
+                    case 2: // asset
+                        parsePointer += 4;
+                        /*
+                        uint32_t status; // 1 for issue, 2 for transfer
+                        boost::variant<asset_detail, asset_transfer> data;
 
-                // Get token transfer amount
-                parsePointer += ETP_TMP;
-                btchip_swap_bytes(amount, parsePointer, 8);
-                parsePointer += 8;
+                        asset_details:
+                        std::string symbol;      // < 64 bytes
+                        uint64_t maximum_supply;
+                        uint8_t decimal_number;
+                        uint8_t secondaryissue_threshold;
+                        uint8_t unused2;
+                        uint8_t unused3;
+                        std::string issuer;      // < 64 bytes
+                        std::string address;     // < 64 bytes
+                        std::string description; // < 64 bytes
 
-                //transaction_amount_sub_be(btchip_context_D.totalTokenInputAmount, btchip_context_D.totalTokenInputAmount, amount);
+                        asset_transfer:
+                        std::string symbol; // < 64 bytes
+                        uint64_t quantity;  // = 8 bytes
+                        */
 
-                // Hardcode some tokens with predefined decimals (no need to display decimals confirmation to user)
-                if (strcmp(vars.tmp.fullAmount, "DNA") == 0) {
-                    ETP_DECIMALS = 4;
-                } else if (strcmp(vars.tmp.fullAmount, "MVS.ZGC") == 0) {
-                    ETP_DECIMALS = 8;
-                } else if (strcmp(vars.tmp.fullAmount, "MVS.ZDC") == 0) {
-                    ETP_DECIMALS = 6;
-                } else {
-                    ETP_DECIMALS = btchip_context_D.decimals[btchip_context_D.totalOutputs - btchip_context_D.remainingOutputs];
-                    snprintf(vars.tmp.decimals, sizeof(vars.tmp.decimals), "%d", ETP_DECIMALS);
-                }
-            } else {
-                return 0;
-            }
-        } else {
-            return 0;
+                        // Status
+                        // 1 : issue
+                        // 2 : transfer
+                        switch(btchip_read_u32(parsePointer, 0, 0)) {
+                            case 1: // issue
+                                break;
+                            case 2: // transfer
+                                parsePointer += 4;
+
+                                // Ticker text length (first bit is length of symbol)
+                                // Prepare ticker text
+                                ETP_LENGTH = *parsePointer > 10 ? 10 : *parsePointer;
+                                os_memmove(vars.tmp.fullAmount, parsePointer + 1, ETP_LENGTH);
+                                vars.tmp.fullAmount[ETP_LENGTH] = '\0';
+
+                                // Get token transfer amount
+                                parsePointer += *parsePointer;
+                                parsePointer += 1;
+                                btchip_swap_bytes(amount, parsePointer, 8);
+
+                                parsePointer += 8;
+
+                                // // Ticker text length
+                                // ETP_TMP = *parsePointer;
+                                // parsePointer += 1;
+        
+                                // // Prepare ticker text
+                                // ETP_LENGTH = ETP_TMP > 10 ? 10 : ETP_TMP;
+                                // os_memmove(vars.tmp.fullAmount, parsePointer, ETP_LENGTH);
+                                // vars.tmp.fullAmount[ETP_LENGTH] = '\0';
+
+                                // // Get token transfer amount
+                                // parsePointer += ETP_TMP;
+                                // btchip_swap_bytes(amount, parsePointer, 8);
+                                // parsePointer += 8;
+                                        
+                                ETP_DECIMALS = btchip_context_D.decimals[btchip_context_D.totalOutputs - btchip_context_D.remainingOutputs];
+                                snprintf(vars.tmp.decimals, sizeof(vars.tmp.decimals), "%d", ETP_DECIMALS);
+
+                                break;
+                            default: 
+                                return 0;
+                        };
+                        break;
+
+                    case 3: // message
+
+                        /* 
+                        std::string content; // < 253 bytes
+                        */
+                        // parsePointer += 4;
+
+                        // // Ticker text length (first bit is length of symbol)
+                        // // Prepare ticker text
+                        // ETP_LENGTH = *parsePointer > 10 ? 10 : *parsePointer;
+                        // os_memmove(vars.tmp.fullAmount, parsePointer + 1, ETP_LENGTH);
+                        // vars.tmp.fullAmount[ETP_LENGTH] = '\0';
+
+                        break;
+
+                    case 4: // did
+
+                        /*
+                        uint32_t status;     // 1 for register, 2 for transfer
+                        std::string symbol;  // < 64 bytes
+                        std::string address; // < 64 bytes
+                        */
+
+                        break;
+
+                    case 5: // asset_cert
+
+                        /*
+                        std::string symbol;   // < 64 bytes
+                        std::string owner;    // < 64 bytes
+                        std::string address;  // < 64 bytes
+                        uint32_t cert_type;   // = 4 bytes
+                        uint8_t status;       // = 1 byte
+                        std::string content;  // < 64 bytes
+                        */
+
+                        break;
+
+                    case 6: // asset_mit
+                        parsePointer += 4;                       
+                        /*
+                        uint8_t status.      // 1 for register, 2 for transfer
+                        std::string symbol;  // < 64 bytes
+                        std::string address; // < 64 bytes
+                        std::string content; // < 256 bytes
+                        */
+
+                        // Status
+                        // 1 : issue
+                        // 2 : transfer
+                        switch(btchip_read_u32(parsePointer, 0, 0)) {
+                            case 1: // issue
+                                break;
+                            case 2: // transfer
+                                break;
+                            default: 
+                                return 0;
+                        };
+                        break;                  
+
+                    default:
+                        // the rest are unsupported types
+                        return 0;
+
+                };
+
+                break;
+                
+            case 207:
+                break;
+
         }
 
         vars.tmp.fullAmount[ETP_LENGTH] = ' ';
